@@ -8,13 +8,21 @@ use std::path::PathBuf;
     about = "A tool to sort images based on metadata or Google Takeout JSON files."
 )]
 pub struct Arguments {
-    /// Path to the directory containing images or JSON files
+    /// Path to the directory containing images
     #[clap(
         short,
         long,
-        help = "Path to the directory containing images or JSON files"
+        help = "Path to the directory containing images"
     )]
     pub path: PathBuf,
+
+    /// Path to the directory to copy the sorted media to
+    #[clap(
+        short,
+        long,
+        help = "Path to the directory containing the sorted images should be copied to"
+    )]
+    pub dest: PathBuf,
 
     /// Sort images by months
     #[clap(short, help = "Sort images by months")]
@@ -36,6 +44,7 @@ impl Arguments {
         if !self.years && !self.months {
             return Err(String::from("Either the months or years flag must be set"));
         }
+
 
         Ok(self)
     }

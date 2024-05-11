@@ -1,69 +1,21 @@
 use chrono::{Datelike, NaiveDateTime};
 use exif::{In, Tag};
 use globwalk::{GlobError, GlobWalker};
-use std::collections::BTreeMap;
 use std::error::Error;
 use std::io;
 use std::path::PathBuf;
+use std::time::Instant;
 
 pub mod arguments;
 use crate::arguments::Arguments;
 
+pub mod tree;
+use crate::tree::{build_tree, Tree};
+
+pub mod image;
+use crate::image::Image;
+
 const PATTERNS: [&str; 5] = ["*.png", "*.jpg", "*.jpeg", "*.heic", ".mov"];
-
-#[derive(Debug, PartialEq)]
-struct Image {
-    path: PathBuf,
-}
-
-impl Image {
-    fn new(path: PathBuf) -> Self {
-        Image { path }
-    }
-}
-
-enum Tree {
-    YearMonth(BTreeMap<(i32, u32), Vec<Image>>),
-    Year(BTreeMap<i32, Vec<Image>>),
-    Month(BTreeMap<u32, Vec<Image>>),
-}
-
-impl Tree {
-    fn insert(&mut self, datetime: (i32, u32), image: Image) {
-        match self {
-            Tree::YearMonth(tree) => {
-                tree.entry(datetime).or_insert_with(Vec::new).push(image);
-            }
-            Tree::Year(tree) => {
-                let (year, _) = datetime;
-                tree.entry(year).or_insert_with(Vec::new).push(image);
-            }
-            Tree::Month(tree) => {
-                let (_, month) = datetime;
-                tree.entry(month).or_insert_with(Vec::new).push(image);
-            }
-        }
-    }
-
-    fn size(&self) -> usize {
-        match self {
-            Tree::YearMonth(tree) => tree.values().map(Vec::len).sum(),
-            Tree::Year(tree) => tree.values().map(Vec::len).sum(),
-            Tree::Month(tree) => tree.values().map(Vec::len).sum(),
-        }
-    }
-}
-
-fn build_tree(years: &bool, months: &bool) -> Tree {
-    // Args validated, one of these three types will always appear
-    if *months && *years {
-        Tree::YearMonth(BTreeMap::new())
-    } else if *years {
-        Tree::Year(BTreeMap::new())
-    } else {
-        Tree::Month(BTreeMap::new())
-    }
-}
 
 fn build_glob_walker(path: &PathBuf, patterns: &[&str]) -> Result<GlobWalker, GlobError> {
     globwalk::GlobWalkerBuilder::from_patterns(path, patterns)
@@ -71,31 +23,6 @@ fn build_glob_walker(path: &PathBuf, patterns: &[&str]) -> Result<GlobWalker, Gl
         .follow_links(true)
         .case_insensitive(true)
         .build()
-}
-
-fn find(walker: GlobWalker, tree: &mut Tree) -> Result<(), Box<dyn Error>> {
-    // Convert to peekable itertor to check if empty
-    let mut images = walker.into_iter().filter_map(Result::ok).peekable();
-
-    if images.peek().is_none() {
-        return Err(Box::new(io::Error::new(
-            io::ErrorKind::NotFound,
-            "Did not find any media with metadata.",
-        )));
-    }
-
-    for image in images {
-        let path = image.path().to_path_buf();
-
-        if let Some(datetime) = get_datetime_original(&path) {
-            tree.insert(datetime, Image::new(path));
-        } else {
-            // Insert pics without metadata under (0, 0)
-            tree.insert((0, 0), Image::new(path));
-        }
-    }
-
-    Ok(())
 }
 
 fn get_datetime_original(path: &PathBuf) -> Option<(i32, u32)> {
@@ -119,41 +46,62 @@ fn get_datetime_original(path: &PathBuf) -> Option<(i32, u32)> {
     }
 }
 
+fn find(walker: GlobWalker, tree: &mut Tree) -> Result<(), Box<dyn Error>> {
+    // Convert to peekable iterator to check if empty
+    let mut images = walker.into_iter().filter_map(Result::ok).peekable();
+
+    if images.peek().is_none() {
+        return Err(Box::new(io::Error::new(
+            io::ErrorKind::NotFound,
+            "Did not find any media with metadata.",
+        )));
+    }
+
+    for image in images {
+        let path = image.path().to_path_buf();
+
+        if let Some(datetime) = get_datetime_original(&path) {
+            tree.insert(
+                datetime,
+                Image::new(path, image.file_name().to_str().unwrap().to_owned()),
+            );
+        } else {
+            // Insert pics without metadata under (0, 0)
+            tree.insert(
+                (0, 0),
+                Image::new(path, image.file_name().to_str().unwrap().to_owned()),
+            );
+        }
+    }
+
+    Ok(())
+}
+
 // Means that function will return a type that implements the Error trait
 pub fn run(args: &Arguments) -> Result<(), Box<dyn Error>> {
     let walker = build_glob_walker(&args.path, &PATTERNS)?;
     let mut tree = build_tree(&args.years, &args.months);
 
+    println!("Searching for media...");
+    let find_start = Instant::now();
     find(walker, &mut tree)?;
+    let find_duration = find_start.elapsed();
 
-    println!("Found {} pieces of media with metadata", tree.size());
+    println!(
+        "Found {} pieces of media in {:?}",
+        tree.size(),
+        find_duration
+    );
 
-    match tree {
-        Tree::YearMonth(t) => {
-            for ((year, month), images) in t {
-                println!("Year: {}, Month: {}", year, month);
-                for image in images {
-                    println!("  Image: {:?}", image.path);
-                }
-            }
-        }
-        Tree::Year(t) => {
-            for (year, images) in t {
-                println!("Year: {}", year);
-                for image in images {
-                    println!("  Image: {:?}", image.path);
-                }
-            }
-        }
-        Tree::Month(t) => {
-            for (month, images) in t {
-                println!("Month: {}", month);
-                for image in images {
-                    println!("  Image: {:?}", image.path);
-                }
-            }
-        }
-    }
+    println!("Saving sorted media...");
+    let save_start = Instant::now();
+    tree.save(&args.dest)?;
+    let save_duration = save_start.elapsed();
+
+    println!(
+        "Media successfully saved to: {:?} in {:?}",
+        &args.dest, save_duration
+    );
 
     Ok(())
 }
@@ -161,9 +109,9 @@ pub fn run(args: &Arguments) -> Result<(), Box<dyn Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ::image::RgbImage;
     use exif::experimental;
     use exif::{Field, In, Tag, Value};
-    use image::RgbImage;
     use std::collections::HashSet;
     use std::fs::File;
     use std::io::BufWriter;
@@ -221,6 +169,7 @@ mod tests {
 
         let args = Arguments {
             path,
+            dest: PathBuf::from("dest"),
             months: true,
             years: true,
         };
@@ -236,10 +185,9 @@ mod tests {
     #[test]
     fn invalid_path() {
         // Ensure args has error on invalid path
-        let path = PathBuf::from("bleh");
-
         let args = Arguments {
-            path,
+            path: PathBuf::from("bleh"),
+            dest: PathBuf::from("dest"),
             months: true,
             years: true,
         };
@@ -254,10 +202,9 @@ mod tests {
     #[test]
     fn invalid_sort_flags() {
         // Ensure args has error on invalid path
-        let path = PathBuf::from("bleh");
-
         let args = Arguments {
-            path,
+            path: PathBuf::from("bleh"),
+            dest: PathBuf::from("dest"),
             months: false,
             years: false,
         };
