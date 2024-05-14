@@ -4,6 +4,7 @@ use std::fs;
 use std::io;
 use std::path::PathBuf;
 
+#[derive(PartialEq,Debug)]
 pub enum Tree {
     YearMonth(BTreeMap<(i32, u32), Vec<Image>>),
     Year(BTreeMap<i32, Vec<Image>>),
