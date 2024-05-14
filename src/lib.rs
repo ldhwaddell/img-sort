@@ -276,50 +276,23 @@ mod tests {
         }
     }
 
-    // #[test]
-    // fn find_no_existing_media() {
-    //     // Ensure error occurs when no media found
-    //     let dir = TempDir::new().expect("Failed to create temporary folder");
-    //     let dir_path = dir.path().to_path_buf();
+    #[test]
+    fn find_no_existing_media() {
+        // Ensure error occurs when no media found
+        let dir = TempDir::new().expect("Failed to create temporary folder");
+        let dir_path = dir.path().to_path_buf();
 
-    //     let walker = match build_glob_walker(&dir_path) {
-    //         Ok(walker) => walker,
-    //         Err(msg) => panic!("Error building walker: {}", msg),
-    //     };
+        let walker = build_glob_walker(&dir_path, &PATTERNS).unwrap();
 
-    //     let results = find(walker);
+        let mut tree = build_tree(&true, &true);
 
-    //     assert!(
-    //         results.is_err(),
-    //         "Expected an error for a directory without any media"
-    //     );
-    // }
+        let results = find(walker, &mut tree);
 
-    // #[test]
-    // fn find_existing_media() {
-    //     // Ensure media is found (Metadata not examined)
-    //     let dir = TempDir::new().expect("Failed to create temporary folder");
-    //     let dir_path = dir.path().to_path_buf();
-    //     let files = ["a.png", "b.PNG", "c.jpg", "d.JPG", "e.jpeg", "f.JPEG"];
-
-    //     // Need metadata or else find will error
-    //     touch(&dir, files, Some("2022:01:01 00:00:00"));
-
-    //     let walker = match build_glob_walker(&dir_path) {
-    //         Ok(walker) => walker,
-    //         Err(msg) => panic!("Error building walker: {}", msg),
-    //     };
-
-    //     let results = match find(walker) {
-    //         Ok(results) => results,
-    //         Err(msg) => panic!("Error getting results: {}", msg),
-    //     };
-
-    //     let result_set: HashSet<PathBuf> = results.into_iter().map(|img| img.path).collect();
-    //     let expected_set: HashSet<PathBuf> = files.into_iter().map(|f| dir_path.join(f)).collect();
-
-    //     assert_eq!(result_set, expected_set, "Expected OK results");
-    // }
+        assert!(
+            results.is_err(),
+            "Expected an error for a directory without any media"
+        );
+    }
 
     #[test]
     fn find_existing_datetime() {
