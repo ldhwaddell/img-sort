@@ -295,6 +295,39 @@ mod tests {
     }
 
     #[test]
+    fn find_existing_media() {
+        // Ensure media is found as expected
+        let dir = TempDir::new().expect("Failed to create temporary folder");
+        let dir_path = dir.path().to_path_buf();
+        let files = ["a.png", "b.jpg", "c.jpeg"];
+
+        // Need metadata or else find will error
+        touch(&dir, files, Some("2024:01:01 00:00:00"));
+
+        let walker = build_glob_walker(&dir_path, &PATTERNS).unwrap();
+
+        let mut tree = build_tree(&true, &true);
+
+        let _ = find(walker, &mut tree);
+
+        let mut expected = build_tree(&true, &true);
+        expected.insert(
+            (2024, 1),
+            Image::new(dir_path.join("c.jpeg"), "c.jpeg".to_string()),
+        );
+        expected.insert(
+            (2024, 1),
+            Image::new(dir_path.join("b.jpg"), "b.jpg".to_string()),
+        );
+        expected.insert(
+            (2024, 1),
+            Image::new(dir_path.join("a.png"), "a.png".to_string()),
+        );
+
+        assert_eq!(tree, expected, "Expected tree equality")
+    }
+
+    #[test]
     fn find_existing_datetime() {
         // Ensure that datetimes found are as expected
         let dir = TempDir::new().expect("Failed to create temporary folder");
